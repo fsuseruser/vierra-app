@@ -1,0 +1,165 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  TEAM_LEAD
+  PROPERTY_CONSULTANT
+  TECHNICAL
+}
+
+enum LeadStatus {
+  NEW
+  QUALIFIED
+  CONVERTED
+  REJECTED
+}
+
+enum PrevExperience {
+  NO
+  UAE
+  INTERNATIONAL
+  BOTH
+}
+
+enum AssetRange {
+  UNDER_1M
+  R1_5M
+  R5_10M
+  R10_25M
+  OVER_25M
+}
+
+enum LiquidRange {
+  UNDER_500K
+  R500K_1M
+  R1_3M
+  R3_5M
+  OVER_5M
+}
+
+enum Horizon {
+  Y1_3
+  Y3_5
+  Y5_10
+  Y10_PLUS
+}
+
+enum Objective {
+  CAPITAL_APPRECIATION
+  RENTAL_YIELD
+  SHORT_TERM_RESALE
+  LONG_TERM_WEALTH
+  EQUITY_RELEASE
+  COMBINATION
+}
+
+enum ReminderChannel {
+  WHATSAPP
+  EMAIL
+}
+
+enum ReminderStatus {
+  PENDING
+  SENT
+  DONE
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role
+  points       Int      @default(0)
+
+  // Audit trail only: who technically clicked "create". Do not use this to
+  // decide what a Team Lead can see — use supervisorId for that instead,
+  // since an Admin can create a Property Consultant directly and assign
+  // them to a Team Lead who didn't personally create the account.
+  createdById  String?
+  createdBy    User?    @relation("CreatedUsers", fields: [createdById], references: [id])
+  createdUsers User[]   @relation("CreatedUsers")
+
+  // The actual reporting line for a Property Consultant. Always set,
+  // regardless of who created the account, so a consultant's leads and
+  // bookings are visible to the Team Lead responsible for following up.
+  supervisorId String?
+  supervisor   User?    @relation("Supervises", fields: [supervisorId], references: [id])
+  supervisees  User[]   @relation("Supervises")
+
+  // Google OAuth (Calendar). Populated once the OAuth callback succeeds.
+  googleRefreshToken String?
+  googleConnectedAt  DateTime?
+
+  leads        Lead[]   @relation("AgentLeads")
+  bookings     Booking[]
+  pointsLedger PointsLedger[]
+  reminders    Reminder[] @relation("TeamLeadReminders")
+  createdAt    DateTime @default(now())
+}
+
+model Lead {
+  id                  String         @id @default(cuid())
+  salutation          String
+  fullName            String
+  phone               String
+  email               String
+  previousExperience  PrevExperience
+  assetPortfolio      AssetRange
+  liquidCapital       LiquidRange
+  intendedInvestment  Float
+  investmentHorizon   Horizon
+  investmentObjective Objective
+  status              LeadStatus     @default(NEW)
+  agentId             String
+  agent               User           @relation("AgentLeads", fields: [agentId], references: [id])
+  booking             Booking?
+  pointsLedger        PointsLedger[]
+  reminders           Reminder[]
+  createdAt           DateTime       @default(now())
+  qualifiedAt         DateTime?
+  convertedAt         DateTime?
+}
+
+model Booking {
+  id        String   @id @default(cuid())
+  leadId    String   @unique
+  lead      Lead     @relation(fields: [leadId], references: [id])
+  agentId   String
+  agent     User     @relation(fields: [agentId], references: [id])
+  date      String
+  timeSlot  String
+  createdAt DateTime @default(now())
+
+  @@unique([date, timeSlot])
+}
+
+model PointsLedger {
+  id        String   @id @default(cuid())
+  agentId   String
+  agent     User     @relation(fields: [agentId], references: [id])
+  leadId    String?
+  lead      Lead?    @relation(fields: [leadId], references: [id])
+  points    Int
+  reason    String
+  createdAt DateTime @default(now())
+}
+
+model Reminder {
+  id         String          @id @default(cuid())
+  leadId     String
+  lead       Lead            @relation(fields: [leadId], references: [id])
+  teamLeadId String
+  teamLead   User            @relation("TeamLeadReminders", fields: [teamLeadId], references: [id])
+  channel    ReminderChannel
+  status     ReminderStatus  @default(PENDING)
+  dueAt      DateTime
+  createdAt  DateTime        @default(now())
+}
